@@ -4,7 +4,7 @@ FROM python:3.11-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PORT=7860 \
+    PORT=8002 \
     TEMP_DIR=/tmp/cataract_temp
 
 # Create unprivileged system user/group (UID/GID 1000) without login shell
@@ -33,11 +33,11 @@ RUN mkdir -p /tmp/cataract_temp && \
 
 USER appuser
 
-EXPOSE 7860
+EXPOSE 8002
 
-# Container Healthcheck (Probes /health endpoint)
+# Container Healthcheck (Probes /health endpoint on default PORT 8002)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import os, urllib.request; port = os.environ.get('PORT', '7860'); urllib.request.urlopen(f'http://127.0.0.1:{port}/health')"
+    CMD python -c "import os, urllib.request; port = os.environ.get('PORT', '8002'); urllib.request.urlopen(f'http://127.0.0.1:{port}/health')"
 
 # Exec form via shell wrapper for dynamic PORT evaluation and SIGTERM propagation
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860}"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8002}"]
