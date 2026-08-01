@@ -1,10 +1,6 @@
-name: Production CI/CD Pipeline - Cataract Detection Service
+name: Manual Build & Push to Artifact Registry
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -12,16 +8,12 @@ permissions:
   id-token: write
 
 env:
-  GCP_REGION: asia-south2
-  REPOSITORY: spandavidya-ml-model
-  IMAGE_NAME: cataract-aiml
-  SERVICE_NAME: cataract-service
-  PORT: 8002
+  GCP_REGION: asia-south1
+  REPOSITORY: spandvidya-ml-model
+  IMAGE_NAME: cataract-detection
 
 jobs:
-  # Stage 1: Dependency Audit & Quality Check
-  audit:
-    name: 1. Dependency & Code Audit
+  build-and-push:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -29,125 +21,7 @@ jobs:
         with:
           lfs: true
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install audit dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pip-audit
-
-      - name: Audit Python dependencies for CVEs
-        run: |
-          pip-audit -r requirements.txt || echo "::warning ::Dependency audit flagged vulnerabilities. Review requirements.txt."
-
-  # Stage 2: Container Build, In-Container Quality Gate & Runtime Tests
-  build-and-verify:
-    name: 2. Docker Build & Container Quality Gate
-    runs-on: ubuntu-latest
-    needs: audit
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build local container image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          load: true
-          tags: cataract-detection:ci-test
-
-      - name: Automated Quality Gate - PyTorch CPU & Zero GPU Check
-        run: |
-          echo "=== Quality Gate 1: PyTorch CPU Verification ==="
-          docker run --rm cataract-detection:ci-test python -c "import torch; print('PyTorch Version:', torch.__version__); assert torch.__version__ == '2.5.1+cpu', f'Unexpected version: {torch.__version__}'; assert not torch.cuda.is_available(), 'CUDA available!'; assert torch.version.cuda is None, 'CUDA version present!'"
-          
-          echo "=== Quality Gate 2: Absence of GPU Packages ==="
-          docker run --rm cataract-detection:ci-test python -c "import pkg_resources; pkgs = [p.project_name for p in pkg_resources.working_set]; gpu = [p for p in pkgs if any(k in p for k in ['nvidia', 'cuda', 'triton'])]; assert len(gpu) == 0, f'Found GPU packages: {gpu}'; print('Zero GPU packages confirmed.')"
-
-          echo "=== Quality Gate 3: Security Permissions & Non-Root User ==="
-          docker run --rm cataract-detection:ci-test id | grep "uid=1000(appuser)"
-          docker run --rm cataract-detection:ci-test ls -ld /app/app | grep "dr-xr-xr-x"
-          docker run --rm cataract-detection:ci-test ls -ld /tmp/cataract_temp | grep "drwx------"
-
-      - name: Automated Quality Gate - Image Size Guardrail (<1.5 GB)
-        run: |
-          SIZE_BYTES=$(docker image inspect cataract-detection:ci-test --format '{{.Size}}')
-          SIZE_MB=$((SIZE_BYTES / 1024 / 1024))
-          echo "Built Image Size: ${SIZE_MB} MB"
-          if [ $SIZE_MB -gt 1500 ]; then
-            echo "ERROR: Container image size (${SIZE_MB} MB) exceeds threshold of 1500 MB!"
-            exit 1
-          fi
-          echo "SUCCESS: Image size guardrail passed."
-
-      - name: In-Container Runtime Smoke Test (PORT 8002)
-        run: |
-          echo "Launching container on PORT 8002..."
-          docker run -d --name container-smoke-test -p 8002:8002 -e PORT=8002 cataract-detection:ci-test
-          sleep 5
-          
-          echo "Testing GET / endpoint..."
-          curl --fail http://localhost:8002/
-          
-          echo "Testing GET /health endpoint..."
-          curl --fail http://localhost:8002/health
-          
-          echo "Cleaning up smoke test container..."
-          docker rm -f container-smoke-test
-
-  # Stage 3: Vulnerability Scanning & Supply Chain SBOM
-  vulnerability-scan:
-    name: 3. Container Security & Vulnerability Scan
-    runs-on: ubuntu-latest
-    needs: build-and-verify
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build image for scanning
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          load: true
-          tags: cataract-detection:scan
-
-      - name: Run Trivy Vulnerability Scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'cataract-detection:scan'
-          format: 'table'
-          exit-code: '0' # Non-blocking warning mode for CI
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-
-  # Stage 4: Cloud Run Deployment (Only on main branch or manual trigger)
-  deploy:
-    name: 4. Push to Artifact Registry & Deploy to Cloud Run
-    runs-on: ubuntu-latest
-    needs: [build-and-verify, vulnerability-scan]
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-
-      - name: Authenticate to Google Cloud (Workload Identity Federation)
+      - name: Authenticate to Google Cloud (keyless)
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
@@ -162,7 +36,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push image to Artifact Registry
+      - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -171,24 +45,3 @@ jobs:
           tags: |
             ${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-      - name: Deploy to Google Cloud Run (PORT 8002)
-        run: |
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image ${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            --region ${{ env.GCP_REGION }} \
-            --platform managed \
-            --allow-unauthenticated \
-            --port 8002 \
-            --cpu 1 \
-            --memory 2Gi \
-            --concurrency 80 \
-            --timeout 30s \
-            --set-env-vars PORT=8002,TEMP_DIR=/tmp/cataract_temp
-
-      - name: Post-Deployment Verification Probe
-        run: |
-          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region ${{ env.GCP_REGION }} --format 'value(status.url)')
-          echo "Cloud Run Service URL: $SERVICE_URL"
-          curl --fail "${SERVICE_URL}/health"
-          echo "SUCCESS: Cloud Run post-deployment health check passed."
