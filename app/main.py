@@ -11,16 +11,11 @@ from app.predictor import predict_image
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cataract-service")
 
-# Environment security toggle for API documentation
-ENABLE_DOCS = os.environ.get("ENABLE_DOCS", "false").lower() == "true"
-
+# FastAPI application
 app = FastAPI(
     title="Cataract Detection API",
     description="Production-grade AI inference service for cataract classification.",
     version="1.0.0",
-    docs_url="/docs" if ENABLE_DOCS else None,
-    redoc_url="/redoc" if ENABLE_DOCS else None,
-    openapi_url="/openapi.json" if ENABLE_DOCS else None,
 )
 
 # Use /tmp for Cloud Run read-only root filesystem compatibility

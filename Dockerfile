@@ -21,6 +21,25 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app /app/app
 COPY weights /app/weights
 
+RUN python - <<'PY'
+import os
+
+path="/app/weights/best_efficientnet_b3_cataract.pth"
+
+print("="*60)
+print("MODEL FILE VERIFICATION")
+print("="*60)
+
+print("Exists:", os.path.exists(path))
+print("Size:", os.path.getsize(path))
+
+with open(path,"rb") as f:
+    header=f.read(120)
+
+print("Header:", header)
+
+PY
+
 # Step 3: Hardened file permissions (Read-only source code to prevent runtime code tampering - CIS Benchmark 4.1)
 RUN chown -R root:appgroup /app && \
     chmod -R 755 /app && \
