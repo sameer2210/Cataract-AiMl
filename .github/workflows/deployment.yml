@@ -13,9 +13,13 @@ permissions:
 
 env:
   GCP_REGION: asia-south1
-  REPOSITORY: spandavidya-ml-model
-  IMAGE_NAME: cataract-aiml
-  SERVICE_NAME: cataract-service
+
+  REPOSITORY: cataract-detection
+
+  IMAGE_NAME: cataract-api
+
+  SERVICE_NAME: cataract-detection
+
   PORT: 8002
 
 jobs:
@@ -181,9 +185,9 @@ jobs:
             --allow-unauthenticated \
             --port 8002 \
             --cpu 1 \
-            --memory 2Gi \
-            --concurrency 80 \
-            --timeout 30s \
+            --memory 4Gi \
+            --concurrency 8 \
+            --timeout 300s \
             --set-env-vars PORT=8002,TEMP_DIR=/tmp/cataract_temp
 
       - name: Post-Deployment Verification Probe
