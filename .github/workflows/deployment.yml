@@ -205,7 +205,7 @@ jobs:
             --memory 4Gi \
             --concurrency 8 \
             --timeout 300s \
-            --set-env-vars PORT=8002,TEMP_DIR=/tmp/cataract_temp
+            --set-env-vars TEMP_DIR=/tmp/cataract_temp
 
       - name: Post-Deployment Verification Probe
         run: |

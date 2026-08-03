@@ -4,7 +4,6 @@ FROM python:3.11-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PORT=8002 \
     TEMP_DIR=/tmp/cataract_temp
 
 # Create unprivileged system user/group (UID/GID 1000) without login shell
